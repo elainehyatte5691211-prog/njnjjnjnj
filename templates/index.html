@@ -1,0 +1,1084 @@
+<!DOCTYPE html>
+<html lang="ru" class="h-full">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Web Terminal</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'ui-sans-serif', 'system-ui'],
+              mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace']
+            },
+            colors: {
+              brand: {
+                400: '#38d7ff',
+                500: '#22d3ee',
+                600: '#0ea5e9',
+                700: '#0284c7'
+              }
+            },
+          }
+        }
+      }
+    </script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+    <link rel="stylesheet" href="https://unpkg.com/tippy.js@6/dist/tippy.css" />
+    <style>
+      html, body { height: 100%; }
+      body {
+        background: radial-gradient(60% 70% at 10% -20%, rgba(56,189,248,0.18), transparent),
+                    radial-gradient(55% 60% at 110% 0%, rgba(129,140,248,0.2), transparent),
+                    #020617;
+      }
+      #terminal {
+        overflow: hidden;
+        min-height: 320px;
+      }
+      #terminal .xterm {
+        width: 100% !important;
+        height: 100% !important;
+      }
+      .terminal-root {
+        width: 100%;
+        height: 100%;
+        box-sizing: border-box;
+        padding: 18px 22px;
+        background: #030a16;
+      }
+      .terminal-root .xterm-viewport {
+        scrollbar-width: thin;
+      }
+      .terminal-root .xterm-viewport::-webkit-scrollbar { width: 8px; }
+      .terminal-root .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+      .terminal-root .xterm-viewport::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.35); border-radius: 999px; }
+      .custom-scroll::-webkit-scrollbar { width: 8px; }
+      .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+      .custom-scroll::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.3); border-radius: 999px; }
+      .ripple { position: relative; overflow: hidden; }
+      .ripple-effect { position: absolute; border-radius: 999px; transform: translate(-50%, -50%); pointer-events: none; background: rgba(255,255,255,0.35); animation: ripple .6s ease-out forwards; }
+      @keyframes ripple { from { width: 0; height: 0; opacity: .55; } to { width: 220px; height: 220px; opacity: 0; } }
+      .toast { border-radius: 16px; padding: 12px 16px; font-size: 0.85rem; backdrop-filter: blur(12px); display: flex; align-items: center; gap: 0.5rem; }
+    </style>
+  </head>
+  <body class="h-full text-slate-100 font-sans">
+    <div id="particles" class="pointer-events-none fixed inset-0 -z-10"></div>
+    <div class="relative flex min-h-screen flex-col">
+      <header class="relative z-30 border-b border-white/10 bg-slate-950/60 backdrop-blur-xl">
+        <div class="mx-auto flex max-w-7xl flex-wrap items-center gap-4 px-4 py-4 md:gap-6">
+          <div class="flex items-center gap-3 animate-fadeup">
+            <span id="statusDot" class="inline-flex h-2.5 w-2.5 rounded-full bg-rose-500 shadow-[0_0_10px_rgba(248,113,113,0.6)] transition-colors"></span>
+            <span class="text-lg font-semibold tracking-tight text-white">Web Terminal</span>
+            <span id="statusText" class="text-xs font-medium uppercase tracking-[0.25em] text-slate-400">offline</span>
+            <span id="clock" class="hidden text-xs text-slate-500 md:inline-flex md:items-center md:gap-2">
+              --:--
+            </span>
+          </div>
+          <div class="flex-1"></div>
+          <div class="flex flex-wrap items-center gap-2 md:gap-3 animate-fadeup">
+            <button type="button" id="shellBadge" class="ripple group flex items-center gap-3 rounded-2xl border border-white/10 bg-white/10 px-3 py-2 text-left transition hover:border-brand-500/80 hover:bg-brand-500/10">
+              <span class="flex flex-col leading-tight">
+                <span class="text-[10px] uppercase tracking-[0.28em] text-slate-400">Shell</span>
+                <span id="shellLabel" class="text-sm font-semibold text-white">Bash</span>
+                <span id="shellCaption" class="text-xs text-slate-400">Стандартная оболочка</span>
+              </span>
+              <i data-lucide="chevrons-up-down" class="ml-1 h-4 w-4 text-slate-400 transition group-hover:text-brand-300"></i>
+            </button>
+            <div class="hidden items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 md:flex">
+              <i data-lucide="type" class="h-4 w-4 text-slate-400"></i>
+              <input id="fontSize" type="range" min="12" max="20" value="14" class="accent-brand-500">
+            </div>
+            <div class="flex items-center gap-2">
+              <button type="button" id="copyBtn" class="ripple flex items-center gap-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 transition hover:bg-white/10" data-tippy-content="Скопировать выделение">
+                <i data-lucide="copy" class="h-4 w-4"></i>
+              </button>
+              <button type="button" id="clearBtn" class="ripple flex items-center gap-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 transition hover:bg-white/10" data-tippy-content="Очистить экран">
+                <i data-lucide="eraser" class="h-4 w-4"></i>
+              </button>
+              <button type="button" id="restart" class="ripple flex items-center gap-1 rounded-xl border border-brand-600 bg-brand-600/80 px-3 py-2 text-sm font-medium text-white transition hover:bg-brand-500" data-tippy-content="Перезапустить сессию">
+                <i data-lucide="refresh-cw" class="h-4 w-4"></i>
+              </button>
+              <button type="button" id="sudoToggle" class="ripple flex items-center gap-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-slate-100 transition hover:bg-brand-500/20" data-tippy-content="Авто sudo для каждой команды">
+                <i data-lucide="shield" class="h-4 w-4"></i>
+                <span>Sudo</span>
+              </button>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button type="button" class="ripple flex items-center gap-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-slate-100 transition hover:bg-white/10" data-global-ctrl="03" data-tippy-content="Прервать (Ctrl+C)">
+                <i data-lucide="octagon-alert" class="h-4 w-4"></i>
+                <span>Stop</span>
+              </button>
+              <button type="button" class="ripple flex items-center gap-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-slate-100 transition hover:bg-white/10" data-global-ctrl="1a" data-tippy-content="Фоновый режим (Ctrl+Z)">
+                <i data-lucide="moon" class="h-4 w-4"></i>
+                <span>Suspend</span>
+              </button>
+              <button type="button" class="ripple flex items-center gap-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-slate-100 transition hover:bg-white/10" data-global-ctrl="04" data-tippy-content="EOF (Ctrl+D)">
+                <i data-lucide="corner-right-down" class="h-4 w-4"></i>
+                <span>EOF</span>
+              </button>
+              <button type="button" class="ripple flex items-center gap-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-slate-100 transition hover:bg-white/10" data-global-ctrl="0c" data-tippy-content="Очистить экран (Ctrl+L)">
+                <i data-lucide="sparkles" class="h-4 w-4"></i>
+                <span>Clear</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div class="mx-auto w-full max-w-7xl px-4 pt-4 animate-fadeup">
+        <div id="terminalTabs" class="flex items-center gap-2 overflow-x-auto pb-2" data-terminal-tabs></div>
+      </div>
+
+      <main class="flex-1">
+        <div class="mx-auto max-w-7xl px-4 py-6 md:py-10 animate-fade">
+          <div id="terminalCard" class="relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 shadow-[0_50px_80px_-40px_rgba(15,23,42,0.9)] backdrop-blur-xl">
+            <div class="pointer-events-none absolute inset-0 bg-gradient-to-br from-brand-500/10 via-transparent to-violet-500/10 opacity-70"></div>
+            <div id="orb1" class="pointer-events-none absolute -top-32 right-[-6rem] h-72 w-72 rounded-full bg-brand-500/20 blur-3xl mix-blend-screen"></div>
+            <div id="orb2" class="pointer-events-none absolute bottom-[-8rem] left-[-6rem] h-80 w-80 rounded-full bg-purple-500/20 blur-3xl mix-blend-screen"></div>
+            <div class="relative px-3 pb-4 pt-5 md:px-6 md:pb-6 md:pt-7 lg:px-8">
+              <div id="terminalFrame" class="relative overflow-hidden rounded-3xl border border-white/10 bg-[#050b14]/95 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+                <div id="terminal" class="relative h-full w-full"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <footer id="nanoBar" class="pointer-events-none fixed inset-x-0 bottom-0 z-40 translate-y-full border-t border-white/10 bg-slate-950/85 opacity-0 backdrop-blur-xl transition-all duration-300">
+        <div class="mx-auto max-w-7xl px-4 py-3">
+          <div class="flex flex-wrap items-center justify-center gap-2 text-xs font-medium text-slate-100">
+            <button type="button" data-ctrl="G" class="ripple rounded-full border border-white/10 bg-white/10 px-3 py-2 hover:bg-white/20" data-tippy-content="Help (^G)">^G Help</button>
+            <button type="button" data-ctrl="O" class="ripple rounded-full border border-white/10 bg-white/10 px-3 py-2 hover:bg-white/20" data-tippy-content="WriteOut (^O)">^O WriteOut</button>
+            <button type="button" data-ctrl="R" class="ripple rounded-full border border-white/10 bg-white/10 px-3 py-2 hover:bg-white/20" data-tippy-content="Read (^R)">^R Read</button>
+            <button type="button" data-ctrl="W" class="ripple rounded-full border border-white/10 bg-white/10 px-3 py-2 hover:bg-white/20" data-tippy-content="Where Is (^W)">^W WhereIs</button>
+            <button type="button" data-ctrl="Y" class="ripple rounded-full border border-white/10 bg-white/10 px-3 py-2 hover:bg-white/20" data-tippy-content="Prev Page (^Y)">^Y PrevPg</button>
+            <button type="button" data-ctrl="V" class="ripple rounded-full border border-white/10 bg-white/10 px-3 py-2 hover:bg-white/20" data-tippy-content="Next Page (^V)">^V NextPg</button>
+            <button type="button" data-ctrl="K" class="ripple rounded-full border border-white/10 bg-white/10 px-3 py-2 hover:bg-white/20" data-tippy-content="Cut (^K)">^K Cut</button>
+            <button type="button" data-ctrl="U" class="ripple rounded-full border border-white/10 bg-white/10 px-3 py-2 hover:bg-white/20" data-tippy-content="Uncut (^U)">^U UnCut</button>
+            <button type="button" data-ctrl="C" class="ripple rounded-full border border-white/10 bg-white/10 px-3 py-2 hover:bg-white/20" data-tippy-content="Cursor Position (^C)">^C CurPos</button>
+            <button type="button" data-ctrl="J" class="ripple rounded-full border border-white/10 bg-white/10 px-3 py-2 hover:bg-white/20" data-tippy-content="Justify (^J)">^J Justify</button>
+            <button type="button" data-ctrl="T" class="ripple rounded-full border border-white/10 bg-white/10 px-3 py-2 hover:bg-white/20" data-tippy-content="Spell (^T)">^T Spell</button>
+            <button type="button" data-ctrl="X" class="ripple rounded-full border border-rose-500/40 bg-rose-600/80 px-3 py-2 text-white hover:bg-rose-500" data-tippy-content="Exit (^X)">^X Exit</button>
+          </div>
+        </div>
+      </footer>
+    </div>
+
+    <div id="toastHost" class="pointer-events-none fixed right-6 top-24 z-50 flex flex-col gap-2"></div>
+
+    <div id="shellPanel" class="hidden fixed inset-0 z-50">
+      <div class="absolute inset-0 bg-slate-950/70 backdrop-blur-sm" data-shell-close></div>
+      <div class="relative flex min-h-full items-center justify-center px-4 py-10">
+        <div class="shell-dialog w-full max-w-lg space-y-4 rounded-2xl border border-white/10 bg-slate-900/95 p-6 shadow-2xl backdrop-blur">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-[11px] uppercase tracking-[0.3em] text-brand-300">Switch shell</div>
+              <h2 class="mt-1 text-lg font-semibold text-white">Выбор оболочки</h2>
+              <p class="text-sm text-slate-400">Перезапуск сессии произойдёт автоматически</p>
+            </div>
+            <button type="button" id="shellClose" class="ripple rounded-full bg-white/5 p-2 hover:bg-white/10">
+              <i data-lucide="x" class="h-4 w-4 text-slate-300"></i>
+            </button>
+          </div>
+          <div class="relative">
+            <input id="shellSearch" type="text" placeholder="Поиск: bash, zsh, sh..." class="w-full rounded-xl border border-white/10 bg-white/5 py-2.5 pl-3 pr-10 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60" />
+            <i data-lucide="search" class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"></i>
+          </div>
+          <div data-shell-list class="custom-scroll max-h-72 space-y-2 overflow-y-auto pr-1"></div>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tsparticles@2/tsparticles.bundle.min.js"></script>
+    <script src="https://unpkg.com/@popperjs/core@2"></script>
+    <script src="https://unpkg.com/tippy.js@6"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+    <script>
+      const el = {
+        term: document.getElementById('terminal'),
+        termFrame: document.getElementById('terminalFrame'),
+        header: document.querySelector('header'),
+        nanoBar: document.getElementById('nanoBar'),
+        termCard: document.getElementById('terminalCard'),
+        restart: document.getElementById('restart'),
+        fontSize: document.getElementById('fontSize'),
+        copyBtn: document.getElementById('copyBtn'),
+        clearBtn: document.getElementById('clearBtn'),
+        sudoToggle: document.getElementById('sudoToggle'),
+        shellBadge: document.getElementById('shellBadge'),
+        shellLabel: document.getElementById('shellLabel'),
+        shellCaption: document.getElementById('shellCaption'),
+        shellPanel: document.getElementById('shellPanel'),
+        shellList: document.querySelector('[data-shell-list]'),
+        shellSearch: document.getElementById('shellSearch'),
+        shellClose: document.getElementById('shellClose'),
+        statusDot: document.getElementById('statusDot'),
+        statusText: document.getElementById('statusText'),
+        clock: document.getElementById('clock'),
+        toastHost: document.getElementById('toastHost'),
+        tabList: document.querySelector('[data-terminal-tabs]'),
+      };
+
+      const shellItems = [
+        { value: '/bin/bash', label: 'Bash', description: 'Стандартная оболочка Linux', badge: 'По умолчанию' },
+        { value: '/usr/bin/zsh', label: 'Z shell', description: 'Расширенные возможности и плагины', badge: 'Продвинутая' },
+        { value: '/bin/sh', label: 'POSIX sh', description: 'Минимальная POSIX-совместимая оболочка', badge: 'Лёгкая' }
+      ];
+
+      const CONTROL_ACTIONS = {
+        '03': { label: 'Ctrl+C', toast: 'Отправлен Ctrl+C (прерывание)', tone: 'warning' },
+        '1a': { label: 'Ctrl+Z', toast: 'Отправлен Ctrl+Z (приостановка)', tone: 'info' },
+        '04': { label: 'Ctrl+D', toast: 'Отправлен Ctrl+D (EOF)', tone: 'info' },
+        '0c': { label: 'Ctrl+L', toast: 'Отправлен Ctrl+L (очистка)', tone: 'info' },
+      };
+
+      const state = {
+        terminals: new Map(),
+        currentId: null,
+        es: null,
+        nanoActive: false,
+        nanoTipShown: false,
+        outputBuf: '',
+        connectToken: 0,
+        prefs: new Map(),
+        titles: new Map(),
+      };
+
+      const recoveryState = { active: false };
+
+      const storedFont = localStorage.getItem('webterm:font');
+      if (storedFont && el.fontSize) {
+        el.fontSize.value = storedFont;
+      }
+
+      const term = new Terminal({
+        cursorBlink: true,
+        convertEol: true,
+        fontSize: el.fontSize ? parseInt(el.fontSize.value, 10) : 14,
+        fontFamily: 'JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+        theme: { background: '#030a16', foreground: '#e2e8f0' }
+      });
+      const fitAddon = new FitAddon.FitAddon();
+      term.loadAddon(fitAddon);
+      term.open(el.term);
+      term.element?.classList.add('terminal-root');
+      term.focus();
+
+      term.onData((data) => {
+        sendInputRaw(data);
+      });
+
+      term.onResize?.(() => scheduleResize(true));
+
+      window.addEventListener('resize', () => {
+        updateLayout();
+        scheduleResize();
+      });
+
+      const controlButtons = document.querySelectorAll('[data-global-ctrl]');
+      controlButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const hex = btn.getAttribute('data-global-ctrl');
+          sendControlSequence(hex);
+        });
+      });
+
+      el.sudoToggle?.addEventListener('click', toggleSudoMode);
+
+      document.addEventListener('click', (event) => {
+        const target = event.target.closest('.ripple');
+        if (!target) return;
+        const rect = target.getBoundingClientRect();
+        const ripple = document.createElement('span');
+        ripple.className = 'ripple-effect';
+        ripple.style.left = `${event.clientX - rect.left}px`;
+        ripple.style.top = `${event.clientY - rect.top}px`;
+        target.appendChild(ripple);
+        setTimeout(() => ripple.remove(), 600);
+      });
+
+      initAnimations();
+      initParticles();
+      initTooltips(document);
+      if (window.lucide) {
+        lucide.createIcons();
+      }
+
+      updateClock();
+      setInterval(updateClock, 60000);
+      applyShellLabel();
+      renderShellOptions();
+      updateLayout();
+      updateSudoToggleUI();
+      ensureTerminals();
+
+      el.fontSize?.addEventListener('input', () => {
+        const size = parseInt(el.fontSize.value, 10);
+        term.options.fontSize = size;
+        localStorage.setItem('webterm:font', size);
+        updateLayout();
+      });
+
+      el.copyBtn?.addEventListener('click', async () => {
+        const sel = term.getSelection();
+        if (!sel) {
+          notify('Нет выделения', 'warning');
+          return;
+        }
+        try {
+          await navigator.clipboard.writeText(sel);
+          notify('Скопировано в буфер обмена', 'success');
+        } catch (error) {
+          console.error(error);
+          notify('Не удалось скопировать', 'danger');
+        }
+      });
+
+      el.clearBtn?.addEventListener('click', () => {
+        term.clear();
+        notify('Экран очищен', 'info');
+      });
+
+      el.restart?.addEventListener('click', () => {
+        restartCurrent();
+      });
+
+      if (el.shellBadge) {
+        el.shellBadge.addEventListener('click', () => {
+          if (!getCurrentTerminal()) {
+            notify('Сначала создайте терминал', 'warning');
+            return;
+          }
+          openShellPanel();
+        });
+      }
+      el.shellClose?.addEventListener('click', closeShellPanel);
+      el.shellPanel?.addEventListener('click', (event) => {
+        if (event.target.hasAttribute('data-shell-close')) {
+          closeShellPanel();
+        }
+      });
+      el.shellSearch?.addEventListener('input', (event) => {
+        renderShellOptions(event.target.value);
+      });
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && shellPanelOpen()) {
+          closeShellPanel();
+        }
+      });
+
+      document.querySelectorAll('footer [data-ctrl]').forEach((btn) => {
+        btn.addEventListener('click', () => sendNanoCtrl(btn.dataset.ctrl));
+      });
+
+      function notify(message, tone = 'info') {
+        if (!el.toastHost) return;
+        const palette = {
+          info: 'border-white/20 bg-white/10 text-slate-100',
+          success: 'border-emerald-500/30 bg-emerald-500/15 text-emerald-100',
+          warning: 'border-amber-500/30 bg-amber-500/15 text-amber-100',
+          danger: 'border-rose-500/30 bg-rose-500/15 text-rose-100'
+        };
+        const node = document.createElement('div');
+        node.className = `toast border ${palette[tone] || palette.info}`;
+        node.textContent = message;
+        el.toastHost.appendChild(node);
+        if (window.gsap) {
+          gsap.fromTo(node, { y: 20, opacity: 0 }, { y: 0, opacity: 1, duration: 0.35, ease: 'power2.out' });
+        }
+        setTimeout(() => {
+          if (window.gsap) {
+            gsap.to(node, { y: -10, opacity: 0, duration: 0.3, ease: 'power2.in', onComplete: () => node.remove() });
+          } else {
+            node.remove();
+          }
+        }, 2400);
+      }
+
+      function shouldRecover(error) {
+        if (!error) return false;
+        if (error.status) {
+          return [404, 410, 500].includes(error.status);
+        }
+        return error instanceof TypeError;
+      }
+
+      async function handleTerminalFailure(reason) {
+        if (recoveryState.active) return;
+        recoveryState.active = true;
+        console.warn('Attempting to recover terminal:', reason);
+        closeStream();
+        if (state.currentId) {
+          removeTerminalFromState(state.currentId);
+          state.currentId = null;
+        }
+        try {
+          const created = await createTerminal({ silent: true });
+          if (created) {
+            notify('Сессия автоматически восстановлена', 'warning');
+          } else {
+            notify('Не удалось автоматически восстановить терминал', 'danger');
+          }
+        } catch (error) {
+          console.error('Automatic recovery failed', error);
+          notify('Не удалось автоматически восстановить терминал', 'danger');
+        } finally {
+          recoveryState.active = false;
+        }
+      }
+
+      function safeFetch(url, options = {}, { autoRecover = true, expectJson = false } = {}) {
+        return fetch(url, options).then(async (res) => {
+          if (!res.ok) {
+            const error = new Error(`HTTP ${res.status}`);
+            error.status = res.status;
+            throw error;
+          }
+          return expectJson ? res.json() : res;
+        }).catch(async (error) => {
+          console.error('Request failed', url, error);
+          if (autoRecover && shouldRecover(error)) {
+            await handleTerminalFailure(`request ${url} failed: ${error.status || error.message}`);
+            return null;
+          }
+          if (!autoRecover) throw error;
+          return null;
+        });
+      }
+
+      function initAnimations() {
+        if (!window.gsap) return;
+        gsap.from('.animate-fadeup', { opacity: 0, y: 24, duration: 0.8, ease: 'power3.out', stagger: 0.08 });
+        gsap.from('.animate-fade', { opacity: 0, y: 40, duration: 0.9, ease: 'power3.out', delay: 0.15 });
+        gsap.to('#orb1', { x: 30, y: -20, duration: 14, repeat: -1, yoyo: true, ease: 'sine.inOut' });
+        gsap.to('#orb2', { x: -20, y: 25, duration: 16, repeat: -1, yoyo: true, ease: 'sine.inOut' });
+      }
+
+      function initParticles() {
+        if (!window.tsParticles) return;
+        tsParticles.load('particles', {
+          fpsLimit: 60,
+          particles: {
+            number: { value: 42 },
+            color: { value: ['#38d7ff', '#818cf8'] },
+            links: { enable: true, distance: 140, color: '#334155', opacity: 0.35, width: 1 },
+            move: { enable: true, speed: 1.4 },
+            opacity: { value: 0.35 },
+            size: { value: { min: 1, max: 2.8 } }
+          },
+          background: { color: 'transparent' },
+          detectRetina: true
+        });
+      }
+
+      function initTooltips(scope) {
+        if (!window.tippy || !scope) return;
+        scope.querySelectorAll('[data-tippy-content]').forEach((node) => {
+          if (node._tippy) return;
+          tippy(node, { theme: 'light-border', animation: 'shift-away-subtle', delay: 120 });
+        });
+      }
+
+      function updateClock() {
+        if (!el.clock) return;
+        const now = new Date();
+        el.clock.textContent = now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+      }
+
+      function updateTerminalMeta(meta) {
+        if (!meta || !meta.id) return;
+        if (!state.titles.has(meta.id)) {
+          const fallback = meta.title && meta.title.trim().length ? meta.title : `Terminal ${state.titles.size + 1}`;
+          state.titles.set(meta.id, fallback);
+        }
+        state.terminals.set(meta.id, meta);
+      }
+
+      function removeTerminalFromState(termId) {
+        if (!termId) return;
+        const had = state.terminals.delete(termId);
+        state.prefs.delete(termId);
+        state.titles.delete(termId);
+        if (had && state.currentId === termId) {
+          state.currentId = null;
+          localStorage.removeItem('webterm:last-terminal');
+        }
+        renderTabs();
+        updateSudoToggleUI();
+      }
+
+      function getCurrentTerminal() {
+        return state.currentId ? state.terminals.get(state.currentId) || null : null;
+      }
+
+      function getPrefs(termId, create = false) {
+        if (!termId) return null;
+        let prefs = state.prefs.get(termId);
+        if (!prefs && create) {
+          prefs = { sudoMode: false, sudoInjectedForPrompt: false, promptActive: false };
+          state.prefs.set(termId, prefs);
+        }
+        return prefs || null;
+      }
+
+      function updateSudoToggleUI() {
+        if (!el.sudoToggle) return;
+        const prefs = getPrefs(state.currentId);
+        const active = !!(prefs && prefs.sudoMode);
+        const baseClasses = ['bg-white/5', 'text-slate-100', 'border-white/10'];
+        const activeClasses = ['bg-brand-600/80', 'text-white', 'border-brand-600'];
+        if (active) {
+          baseClasses.forEach((cls) => el.sudoToggle.classList.remove(cls));
+          activeClasses.forEach((cls) => el.sudoToggle.classList.add(cls));
+        } else {
+          activeClasses.forEach((cls) => el.sudoToggle.classList.remove(cls));
+          baseClasses.forEach((cls) => el.sudoToggle.classList.add(cls));
+        }
+        el.sudoToggle.setAttribute('aria-pressed', active ? 'true' : 'false');
+      }
+
+      function toggleSudoMode() {
+        const prefs = getPrefs(state.currentId, true);
+        if (!prefs) {
+          notify('Создайте терминал', 'warning');
+          return;
+        }
+        const wasAtPrompt = prefs.promptActive;
+        prefs.sudoMode = !prefs.sudoMode;
+        prefs.sudoInjectedForPrompt = false;
+        updateSudoToggleUI();
+        notify(prefs.sudoMode ? 'Sudo режим включен' : 'Sudo режим отключен', 'info');
+        if (prefs.sudoMode && wasAtPrompt) {
+          maybeInjectSudo(true);
+        }
+      }
+
+      function maybeInjectSudo(force = false) {
+        const prefs = getPrefs(state.currentId);
+        if (!prefs || !prefs.sudoMode) return;
+        if (!force && prefs.sudoInjectedForPrompt) return;
+        prefs.sudoInjectedForPrompt = true;
+        sendInputRaw('sudo ');
+      }
+
+      async function deleteTerminal(termId, { silent = false } = {}) {
+        if (!termId) return;
+        const current = state.currentId === termId;
+        if (current) {
+          closeStream();
+        }
+        try {
+          const res = await fetch(`/terminals/${termId}`, { method: 'DELETE' });
+          if (![200, 204, 404].includes(res.status)) {
+            throw new Error(`delete failed ${res.status}`);
+          }
+        } catch (error) {
+          console.error('delete terminal failed', error);
+          if (!silent) {
+            notify('Не удалось удалить терминал', 'danger');
+          }
+          return;
+        }
+        removeTerminalFromState(termId);
+        if (!state.terminals.size) {
+          const created = await createTerminal({ silent: true });
+          if (created) {
+            return;
+          }
+        }
+        if (current) {
+          const next = Array.from(state.terminals.keys())[0];
+          if (next) {
+            await connectTerminal(next);
+          } else {
+            updateSudoToggleUI();
+          }
+        }
+      }
+
+      function renderTabs() {
+        if (!el.tabList) return;
+        const items = Array.from(state.terminals.values()).sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
+        const frag = document.createDocumentFragment();
+        items.forEach((meta) => {
+          const active = meta.id === state.currentId;
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.dataset.termId = meta.id;
+          btn.className = `ripple group flex items-center gap-3 rounded-2xl border px-3 py-2 text-left transition ${active ? 'border-brand-500/70 bg-brand-500/15 text-brand-100' : 'border-white/10 bg-white/5 text-slate-200 hover:border-brand-500/40 hover:bg-brand-500/10'}`;
+
+          const label = document.createElement('span');
+          label.className = 'flex flex-col leading-tight';
+          const titleText = state.titles.get(meta.id) || meta.title || `Terminal ${meta.id.slice(0, 4).toUpperCase()}`;
+          label.innerHTML = `
+            <span class="text-sm font-semibold">${titleText}</span>
+            <span class="text-[10px] uppercase tracking-[0.25em] text-slate-400">${meta.shell}</span>
+          `;
+
+          const closeBtn = document.createElement('button');
+          closeBtn.type = 'button';
+          closeBtn.className = 'ml-auto flex items-center justify-center rounded-full border border-white/10 bg-white/10 p-1 text-slate-300 opacity-0 transition group-hover:opacity-100 hover:bg-rose-500/80 hover:text-white pointer-events-none group-hover:pointer-events-auto';
+          closeBtn.innerHTML = '<i data-lucide="x" class="h-3.5 w-3.5"></i>';
+          closeBtn.addEventListener('click', (event) => {
+            event.stopPropagation();
+            deleteTerminal(meta.id);
+          });
+          if (active) {
+            closeBtn.classList.add('opacity-100');
+            closeBtn.classList.remove('pointer-events-none');
+          }
+
+          btn.addEventListener('click', () => connectTerminal(meta.id));
+          btn.appendChild(label);
+          btn.appendChild(closeBtn);
+          frag.appendChild(btn);
+        });
+
+        const addBtn = document.createElement('button');
+        addBtn.type = 'button';
+        addBtn.className = 'ripple flex items-center justify-center gap-2 rounded-2xl border border-dashed border-white/15 bg-white/5 px-3 py-2 text-sm text-slate-200 transition hover:border-brand-500/40 hover:bg-brand-500/10';
+        addBtn.innerHTML = '<i data-lucide="plus" class="h-4 w-4"></i><span>Новый</span>';
+        addBtn.addEventListener('click', () => createTerminal());
+        frag.appendChild(addBtn);
+
+        el.tabList.innerHTML = '';
+        el.tabList.appendChild(frag);
+        if (window.lucide) {
+          lucide.createIcons({ root: el.tabList });
+        }
+        initTooltips(el.tabList);
+      }
+
+      async function ensureTerminals() {
+        try {
+          const data = await safeFetch('/terminals', {}, { autoRecover: false, expectJson: true });
+          if (!data) throw new Error('failed to load terminals');
+          const items = Array.isArray(data.items) ? data.items : [];
+          items.forEach(updateTerminalMeta);
+          if (!items.length) {
+            const created = await createTerminal({ silent: true });
+            if (created) {
+              updateTerminalMeta(created);
+            }
+          }
+          renderTabs();
+          const lastId = localStorage.getItem('webterm:last-terminal');
+          let initialId = lastId && state.terminals.has(lastId) ? lastId : null;
+          if (!initialId) {
+            const first = Array.from(state.terminals.values()).sort((a, b) => (a.created_at || 0) - (b.created_at || 0))[0];
+            initialId = first?.id || null;
+          }
+          if (initialId) {
+            connectTerminal(initialId, { reset: false });
+          }
+        } catch (error) {
+          console.error(error);
+          notify('Не удалось загрузить терминалы', 'danger');
+          await handleTerminalFailure('initial load failed');
+        }
+      }
+
+      async function createTerminal(options = {}) {
+        const meta = getCurrentTerminal();
+        const silent = Boolean(options.silent);
+        const desiredShell = options.shell || meta?.shell || localStorage.getItem('webterm:shell') || '/bin/bash';
+        const body = {
+          shell: desiredShell,
+          rows: term.rows,
+          cols: term.cols,
+          title: options.title || `Terminal ${state.terminals.size + 1}`,
+        };
+        try {
+          const created = await safeFetch('/terminals', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          }, { autoRecover: false, expectJson: true });
+          if (!created) return null;
+          updateTerminalMeta(created);
+          renderTabs();
+          if (!silent) {
+            notify('Создан новый терминал', 'success');
+          }
+          await connectTerminal(created.id);
+          return created;
+        } catch (error) {
+          console.error('create terminal failed', error);
+          if (!silent) {
+            notify('Не удалось создать терминал', 'danger');
+          }
+          return null;
+        }
+      }
+
+      async function connectTerminal(termId, { reset = true } = {}) {
+        if (!termId) return;
+        const meta = state.terminals.get(termId) || await fetchTerminalMetadata(termId);
+        if (!meta) {
+          await handleTerminalFailure('terminal metadata missing');
+          return;
+        }
+        closeStream();
+        state.currentId = termId;
+        localStorage.setItem('webterm:last-terminal', termId);
+        const prefs = getPrefs(termId, true);
+        if (prefs) {
+          prefs.promptActive = false;
+          prefs.sudoInjectedForPrompt = false;
+        }
+        updateSudoToggleUI();
+        state.outputBuf = '';
+        state.nanoActive = false;
+        state.nanoTipShown = false;
+        setNanoVisible(false);
+        if (reset) {
+          term.reset();
+        }
+        term.focus();
+        applyShellLabel();
+        renderTabs();
+        initTooltips(document);
+        setStatus('connecting');
+        connectStream();
+        scheduleResize(true);
+      }
+
+      async function fetchTerminalMetadata(termId) {
+        try {
+          const res = await safeFetch(`/terminals/${termId}`, {}, { autoRecover: false });
+          if (!res) {
+            removeTerminalFromState(termId);
+            return null;
+          }
+          const meta = await res.json();
+          updateTerminalMeta(meta);
+          return meta;
+        } catch (error) {
+          console.error('metadata fetch failed', error);
+          removeTerminalFromState(termId);
+          return null;
+        }
+      }
+
+      function closeStream() {
+        if (state.es) {
+          state.es.close();
+          state.es = null;
+        }
+      }
+
+      function connectStream() {
+        if (!state.currentId) return;
+        const targetId = state.currentId;
+        const token = ++state.connectToken;
+        const es = new EventSource(`/terminals/${targetId}/stream`);
+        state.es = es;
+
+        es.onopen = () => {
+          if (state.currentId !== targetId || state.connectToken !== token) {
+            es.close();
+            return;
+          }
+          setStatus('online');
+        };
+
+        es.onmessage = (event) => {
+          if (state.currentId !== targetId || state.connectToken !== token) {
+            return;
+          }
+          const text = event.data;
+          const stickBottom = isAtBottom();
+          term.write(text);
+          if (stickBottom) {
+            term.scrollToBottom();
+          }
+          trackOutput(text);
+        };
+
+        es.onerror = async () => {
+          if (state.currentId !== targetId || state.connectToken !== token) {
+            es.close();
+            return;
+          }
+          setStatus('offline');
+          es.close();
+          state.es = null;
+          const meta = await fetchTerminalMetadata(targetId);
+          if (!meta && state.currentId === targetId) {
+            await handleTerminalFailure('stream endpoint error');
+            return;
+          }
+          setTimeout(() => {
+            if (state.currentId === targetId && state.connectToken === token) {
+              connectStream();
+            }
+          }, 1000);
+        };
+      }
+
+      function scheduleResize(force = false) {
+        if (!state.currentId) return;
+        if (force) {
+          requestResizeNow();
+          return;
+        }
+        if (scheduleResize.timer) {
+          clearTimeout(scheduleResize.timer);
+        }
+        scheduleResize.timer = setTimeout(requestResizeNow, 140);
+      }
+      scheduleResize.timer = null;
+
+      function requestResizeNow() {
+        scheduleResize.timer = null;
+        if (!state.currentId) return;
+        safeFetch(`/terminals/${state.currentId}/resize`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rows: term.rows, cols: term.cols }),
+          keepalive: true,
+        });
+      }
+
+      function sendInputRaw(data) {
+        if (!state.currentId || !data) return;
+        if (/[\r\n]/.test(data)) {
+          const prefs = getPrefs(state.currentId);
+          if (prefs) {
+            prefs.sudoInjectedForPrompt = false;
+            prefs.promptActive = false;
+          }
+        }
+        safeFetch(`/terminals/${state.currentId}/input`, { method: 'POST', body: data, keepalive: true });
+      }
+
+      function sendControlSequence(hex) {
+        if (!hex) return;
+        const seq = String.fromCharCode(parseInt(hex, 16));
+        sendInputRaw(seq);
+        const meta = CONTROL_ACTIONS[hex.toLowerCase()];
+        if (meta) {
+          notify(meta.toast, meta.tone);
+        }
+      }
+
+      function sendNanoCtrl(letter) {
+        if (!letter) return;
+        const code = letter.toUpperCase().charCodeAt(0) & 0x1f;
+        sendInputRaw(String.fromCharCode(code));
+      }
+
+      async function restartCurrent(newShell) {
+        if (!state.currentId) return;
+        const payload = {
+          rows: term.rows,
+          cols: term.cols,
+        };
+        if (newShell) {
+          payload.shell = newShell;
+          localStorage.setItem('webterm:shell', newShell);
+        }
+        closeStream();
+        setStatus('restarting');
+        term.reset();
+        state.outputBuf = '';
+        state.nanoActive = false;
+        setNanoVisible(false);
+        try {
+          const meta = await safeFetch(`/terminals/${state.currentId}/restart`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }, { autoRecover: false, expectJson: true });
+          if (!meta) {
+            await handleTerminalFailure('restart failed');
+            return;
+          }
+          updateTerminalMeta(meta);
+          applyShellLabel();
+          renderTabs();
+          notify('Сессия перезапущена', 'info');
+        } catch (error) {
+          console.error('restart failed', error);
+          notify('Не удалось перезапустить терминал', 'danger');
+          await handleTerminalFailure('restart failure');
+          return;
+        }
+        setStatus('connecting');
+        connectStream();
+        scheduleResize(true);
+      }
+
+      function applyShellLabel() {
+        const meta = getCurrentTerminal();
+        const current = shellItems.find((item) => item.value === meta?.shell) || shellItems[0];
+        if (el.shellLabel) {
+          const titleText = meta ? (state.titles.get(meta.id) || current.label) : current.label;
+          el.shellLabel.textContent = titleText;
+        }
+        if (el.shellCaption) {
+          el.shellCaption.textContent = meta ? current.description : 'Создайте терминал';
+        }
+        if (el.shellBadge) el.shellBadge.dataset.shell = current.value;
+      }
+
+      function renderShellOptions(filter = '') {
+        const query = filter.trim().toLowerCase();
+        const meta = getCurrentTerminal();
+        const activeShell = meta?.shell;
+        const items = shellItems.filter((item) => item.label.toLowerCase().includes(query) || item.description.toLowerCase().includes(query) || item.value.toLowerCase().includes(query));
+        if (!items.length) {
+          el.shellList.innerHTML = '<div class="rounded-xl border border-white/10 bg-white/5 px-4 py-6 text-center text-sm text-slate-400">Ничего не найдено. Попробуйте bash, zsh или sh.</div>';
+        } else {
+          el.shellList.innerHTML = items.map((item) => {
+            const active = item.value === activeShell;
+            return `
+              <button type="button" data-value="${item.value}" class="shell-option ripple w-full rounded-2xl border ${active ? 'border-brand-500/70 bg-brand-500/15 text-brand-100' : 'border-white/10 bg-white/5 text-slate-100 hover:border-brand-500/40 hover:bg-brand-500/10'} px-4 py-3 text-left transition">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <div class="text-sm font-semibold">${item.label}</div>
+                    <div class="text-xs text-slate-400">${item.description}</div>
+                  </div>
+                  ${item.badge ? `<span class="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-[10px] uppercase tracking-[0.25em] text-slate-300">${item.badge}</span>` : ''}
+                </div>
+                <div class="mt-2 text-[11px] text-slate-500">${item.value}</div>
+              </button>
+            `;
+          }).join('');
+        }
+        el.shellList.querySelectorAll('[data-value]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const value = btn.getAttribute('data-value');
+            if (!value) return;
+            closeShellPanel();
+            restartCurrent(value);
+          });
+        });
+      }
+
+      function shellPanelOpen() {
+        return el.shellPanel && !el.shellPanel.classList.contains('hidden');
+      }
+
+      function openShellPanel() {
+        renderShellOptions(el.shellSearch?.value || '');
+        el.shellPanel.classList.remove('hidden');
+        if (window.gsap) {
+          gsap.set(el.shellPanel, { opacity: 1 });
+          gsap.fromTo(el.shellPanel.querySelector('.shell-dialog'), { y: 40, opacity: 0 }, { y: 0, opacity: 1, duration: 0.35, ease: 'power3.out' });
+        }
+        setTimeout(() => el.shellSearch?.focus(), 30);
+      }
+
+      function closeShellPanel() {
+        if (!shellPanelOpen()) return;
+        const dialog = el.shellPanel.querySelector('.shell-dialog');
+        if (window.gsap && dialog) {
+          gsap.to(dialog, {
+            y: 30,
+            opacity: 0,
+            duration: 0.25,
+            ease: 'power2.in',
+            onComplete: () => {
+              el.shellPanel.classList.add('hidden');
+              gsap.set(dialog, { clearProps: 'all' });
+            }
+          });
+        } else {
+          el.shellPanel.classList.add('hidden');
+        }
+        if (el.shellSearch) el.shellSearch.value = '';
+      }
+
+      function trackOutput(chunk) {
+        state.outputBuf = (state.outputBuf + (chunk || '')).slice(-4000);
+        const isNano = /GNU\s+nano/i.test(state.outputBuf) || /UW\s+PICO/i.test(state.outputBuf) || /\^X\s+Exit/i.test(state.outputBuf);
+        if (isNano !== state.nanoActive) {
+          state.nanoActive = isNano;
+          setNanoVisible(state.nanoActive);
+        }
+        const promptSeen = /(?:\r?\n|^)[^@\n]+@[\w.-]+:[^\n]+[$#]\s?$/.test(state.outputBuf.slice(-240));
+        const prefs = getPrefs(state.currentId, true);
+        if (prefs) {
+          if (promptSeen) {
+            if (!prefs.promptActive) {
+              prefs.promptActive = true;
+              prefs.sudoInjectedForPrompt = false;
+              if (prefs.sudoMode) {
+                maybeInjectSudo();
+              }
+            }
+          } else if (prefs.promptActive) {
+            prefs.promptActive = false;
+          }
+        }
+        if (state.nanoActive && promptSeen) {
+          state.nanoActive = false;
+          setNanoVisible(false);
+        }
+      }
+
+      function setNanoVisible(show) {
+        if (!el.nanoBar) return;
+        if (show) {
+          el.nanoBar.classList.add('nano-visible');
+          el.nanoBar.classList.remove('pointer-events-none', 'opacity-0', 'translate-y-full');
+          if (!state.nanoTipShown) {
+            notify('Горячие клавиши nano доступны', 'info');
+            state.nanoTipShown = true;
+          }
+        } else {
+          el.nanoBar.classList.remove('nano-visible');
+          el.nanoBar.classList.add('pointer-events-none', 'opacity-0', 'translate-y-full');
+          state.nanoTipShown = false;
+        }
+        updateLayout();
+      }
+
+      function updateLayout() {
+        const headerHeight = el.header ? el.header.offsetHeight : 0;
+        const footerHeight = el.nanoBar && el.nanoBar.classList.contains('nano-visible') ? el.nanoBar.offsetHeight : 0;
+        const available = window.innerHeight - headerHeight - footerHeight - 96;
+        const height = Math.max(320, available);
+        el.term.style.height = `${height}px`;
+        if (el.termFrame) {
+          el.termFrame.style.height = `${height}px`;
+        }
+        const stickBottom = isAtBottom();
+        fitAddon.fit();
+        if (stickBottom) {
+          term.scrollToBottom();
+        }
+      }
+
+      function isAtBottom() {
+        const buffer = term.buffer?.active;
+        if (!buffer) return true;
+        const diff = buffer.baseY + buffer.cursorY - (buffer.length - term.rows);
+        return diff >= -1;
+      }
+
+      function setStatus(mode) {
+        if (!el.statusDot || !el.statusText) return;
+        const states = {
+          online: { color: '#34d399', text: 'ONLINE' },
+          connecting: { color: '#facc15', text: 'CONNECTING' },
+          restarting: { color: '#38bdf8', text: 'RESTARTING' },
+          offline: { color: '#f97316', text: 'OFFLINE' }
+        };
+        const cfg = states[mode] || states.offline;
+        el.statusDot.style.backgroundColor = cfg.color;
+        el.statusDot.style.boxShadow = `0 0 12px ${cfg.color}70`;
+        const meta = getCurrentTerminal();
+        el.statusText.textContent = meta ? `${cfg.text} • ${meta.title || meta.id}` : cfg.text;
+      }
+    </script>
+  </body>
+</html>
