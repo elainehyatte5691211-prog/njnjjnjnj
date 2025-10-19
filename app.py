@@ -5,6 +5,7 @@ import termios
 import struct
 import signal
 import threading
+from pyngrok import ngrok
 import queue
 import uuid
 import time
@@ -411,4 +412,8 @@ def http_terminals_stream(term_id: str):
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8889, debug=True, threaded=True)
+    port = 8889
+    ngrok.set_auth_token("34FiVyvzqJ4DiIYerEVYqfCerUt_5pFZf88sP6ULW1x81V33F")
+    public_url = ngrok.connect(port, bind_tls=True).public_url
+    print("PUBLIC URL:", public_url)
+    app.run(host='127.0.0.1', port=port, debug=True, threaded=True)
