@@ -1,4 +1,5 @@
 import os
+import atexit
 import pty
 import fcntl
 import termios
@@ -6,6 +7,7 @@ import struct
 import signal
 import threading
 from pyngrok import ngrok
+from pyngrok.exception import PyngrokNgrokHTTPError
 import queue
 import uuid
 import time
@@ -23,9 +25,11 @@ from flask import (
     abort,
 )
 
-
+# -----------------------------------------------------------------------------
+# Flask app
+# -----------------------------------------------------------------------------
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'change-this-in-prod'
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-change-me')
 
 
 def ensure_sid() -> str:
@@ -42,6 +46,9 @@ def index():
     return render_template('index.html')
 
 
+# -----------------------------------------------------------------------------
+# PTY-backed terminal
+# -----------------------------------------------------------------------------
 ALLOWED_SHELLS = ['/bin/bash', '/bin/sh', '/usr/bin/zsh']
 
 
@@ -314,6 +321,9 @@ def find_terminal_or_404(sid: str, term_id: str) -> TerminalSession:
     return term
 
 
+# -----------------------------------------------------------------------------
+# HTTP API
+# -----------------------------------------------------------------------------
 @app.get('/terminals')
 def http_terminals_list():
     sid = ensure_sid()
@@ -411,9 +421,64 @@ def http_terminals_stream(term_id: str):
     return Response(stream_with_context(gen()), headers=headers)
 
 
+# -----------------------------------------------------------------------------
+# Utility endpoints (optional)
+# -----------------------------------------------------------------------------
+@app.get("/_health")
+def _health():
+    return jsonify(ok=True), 200
+
+
+@app.get("/_url")
+def _url():
+    # Вернёт текущий https public_url, если туннель уже поднят
+    try:
+        tunnels = ngrok.get_tunnels()
+        pub = next((t.public_url for t in tunnels if getattr(t, "proto", "") == "https"), None)
+    except Exception:
+        pub = None
+    return jsonify(public_url=pub), 200
+
+
+# -----------------------------------------------------------------------------
+# ngrok bootstrap
+# -----------------------------------------------------------------------------
+def start_ngrok(port: int):
+    """
+    Стартует новый HTTPS-туннель к localhost:port.
+    На всякий случай убивает старый локальный агент pyngrok, чтобы избежать дублей.
+    """
+    try:
+        ngrok.kill()
+    except Exception:
+        pass
+    time.sleep(0.2)
+    try:
+        return ngrok.connect(port, bind_tls=True)
+    except PyngrokNgrokHTTPError as e:
+        # Если домен уже занят другой сессией (ERR_NGROK_334),
+        # это означает, что где-то ещё поднят туннель с тем же зарезервированным доменом.
+        # В таком случае нужно отключить ту сессию в Dashboard или использовать другой домен.
+        raise e
+
+
+# -----------------------------------------------------------------------------
+# Entry point
+# -----------------------------------------------------------------------------
 if __name__ == '__main__':
-    port = 8889
-    ngrok.set_auth_token("34FiVyvzqJ4DiIYerEVYqfCerUt_5pFZf88sP6ULW1x81V33F")
-    public_url = ngrok.connect(port, bind_tls=True).public_url
-    print("PUBLIC URL:", public_url)
-    app.run(host='127.0.0.1', port=port, debug=True, threaded=True)
+    port = int(os.getenv('PORT', 8889))
+
+    # Указываем токен через переменную окружения (не хардкодим в коде!)
+    token = '34FiVyvzqJ4DiIYerEVYqfCerUt_5pFZf88sP6ULW1x81V33F'
+    if token:
+        ngrok.set_auth_token(token)
+
+    # Чистим агент при завершении процесса
+    atexit.register(lambda: ngrok.kill())
+
+    # Поднимаем публичный URL
+    tunnel = start_ngrok(port)
+    print("PUBLIC URL:", tunnel.public_url, flush=True)
+
+    # ВАЖНО: без авторелоада, чтобы не плодить второй процесс и второй туннель
+    app.run(host='127.0.0.1', port=port, debug=True, use_reloader=False, threaded=True)
