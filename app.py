@@ -469,7 +469,7 @@ if __name__ == '__main__':
     port = int(os.getenv('PORT', 6246))
 
     # Указываем токен через переменную окружения (не хардкодим в коде!)
-    token = '34HIGJBrFVNSEDkGVY6EpBnnOdj_892Kt92YP5h8fhf7bEUJH'
+    token = '34HOCHre9m1uUkr2UB7usP0owma_2WXUViptT6AQLdCDBLzPe'
     if token:
         ngrok.set_auth_token(token)
 
