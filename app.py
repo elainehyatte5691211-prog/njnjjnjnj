@@ -466,7 +466,7 @@ def start_ngrok(port: int):
 # Entry point
 # -----------------------------------------------------------------------------
 if __name__ == '__main__':
-    port = int(os.getenv('PORT', 8889))
+    port = int(os.getenv('PORT', 6246))
 
     # Указываем токен через переменную окружения (не хардкодим в коде!)
     token = '34HFSikdxwQB6DJLlShAAA0OvU1_4xddtcJ1M21uefKUPh8Eg'
